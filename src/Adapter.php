@@ -1,18 +1,34 @@
 <?php
 
-namespace Mitoop\AliOSS;
+namespace XzHonour\AliOSS;
 
-use League\Flysystem\Adapter\AbstractAdapter;
-use League\Flysystem\Adapter\CanOverwriteFiles;
-use League\Flysystem\AdapterInterface;
+use Aws\Api\DateTimeResult;
+use League\Flysystem\AwsS3V3\PortableVisibilityConverter;
+use League\Flysystem\AwsS3V3\VisibilityConverter;
 use League\Flysystem\Config;
-use League\Flysystem\Util;
-use Log;
+use League\Flysystem\DirectoryAttributes;
+use League\Flysystem\FileAttributes;
+use League\Flysystem\FilesystemAdapter;
+use League\Flysystem\FilesystemException;
+use League\Flysystem\PathPrefixer;
+use League\Flysystem\UnableToCheckExistence;
+use League\Flysystem\UnableToCheckFileExistence;
+use League\Flysystem\UnableToCreateDirectory;
+use League\Flysystem\UnableToDeleteDirectory;
+use League\Flysystem\UnableToMoveFile;
+use League\Flysystem\UnableToRetrieveMetadata;
+use League\Flysystem\UnableToSetVisibility;
+use League\Flysystem\UnableToWriteFile;
+use League\Flysystem\Visibility;
+use League\MimeTypeDetection\FinfoMimeTypeDetector;
+use League\MimeTypeDetection\MimeTypeDetector;
+use Illuminate\Support\Facades\Log;
 use OSS\Core\OssException;
 use OSS\OssClient;
+use Symfony\Component\HttpFoundation\File\Exception\FileException;
 use Throwable;
 
-class Adapter extends AbstractAdapter implements CanOverwriteFiles
+class Adapter implements FilesystemAdapter
 {
     /**
      * @var OssClient oss client
@@ -45,6 +61,16 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
     private $options = [];
 
     /**
+     * @var PathPrefixer
+     */
+    protected PathPrefixer $prefixer;
+
+    /**
+     * @var MimeTypeDetector
+     */
+    private MimeTypeDetector $mimeTypeDetector;
+
+    /**
      * View Aliyun OSS Setting.
      *
      * @var array
@@ -61,36 +87,38 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
         'visibility' => OssClient::OSS_OBJECT_ACL,
     ];
 
-    public function __construct(OssClient $client, $bucket, $endPoint, $schema, $customDomain)
+    public function __construct(OssClient $client, $bucket, $endPoint, $schema, $customDomain, $prefix = '')
     {
         $this->client = $client;
         $this->bucket = $bucket;
         $this->endPoint = $endPoint;
         $this->schema = $schema;
         $this->customDomain = $customDomain;
-    }
+        $this->prefixer = new PathPrefixer($prefix);
+        $this->mimeTypeDetector = new FinfoMimeTypeDetector();
+   }
 
     /**
      * write.
      *
-     * @param  string  $path
-     * @param  string  $contents
+     * @param string $path
+     * @param string $contents
      *
-     * @param  \League\Flysystem\Config  $config
-     * @return array|bool|false
+     * @param  Config  $config
+     * @return void
      */
-    public function write($path, $contents, Config $config)
+    public function write(string $path, string $contents, Config $config): void
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         $options = $this->getOptions($config);
 
         if (! isset($options[OssClient::OSS_CONTENT_TYPE])) {
-            $options[OssClient::OSS_CONTENT_TYPE] = Util::guessMimeType($path, $contents);
+            $options[OssClient::OSS_CONTENT_TYPE] = $this->mimeTypeDetector->detectMimeType($path,$contents);
         }
 
         if (! isset($options[OssClient::OSS_LENGTH])) {
-            $options[OssClient::OSS_LENGTH] = is_resource($contents) ? Util::getStreamSize($contents) : Util::contentSize($contents);
+            $options[OssClient::OSS_LENGTH] = is_resource($contents) ? $this->getStreamSize($contents) : $this->contentSize($contents);
         }
 
         if ($options[OssClient::OSS_LENGTH] === null) {
@@ -102,95 +130,74 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
 
-            return false;
+            throw UnableToWriteFile::atLocation($path, $t->getMessage(), $t);
+        }
+    }
+
+    /**
+     * Get content size.
+     *
+     * @param string $contents
+     *
+     * @return int content size
+     */
+    public static function contentSize(string $contents): int
+    {
+        return defined('MB_OVERLOAD_STRING') ? mb_strlen($contents, '8bit') : strlen($contents);
+    }
+
+    /**
+     * Get the size of a stream.
+     *
+     * @param resource $resource
+     *
+     * @return int|null stream size
+     */
+    public function getStreamSize($resource): ?int
+    {
+        $stat = fstat($resource);
+
+        if ( ! is_array($stat) || ! isset($stat['size'])) {
+            return null;
         }
 
-        return true;
+        return $stat['size'];
     }
 
     /**
      * Write stream.
      *
      * @param  string  $path
-     * @param  resource  $resource
-     *
-     * @param  \League\Flysystem\Config  $config
-     * @return array|bool|false
+     * @param  resource $contents
+     * @param  Config  $config
+     * @throws UnableToWriteFile
+     * @throws FilesystemException
      */
-    public function writeStream($path, $resource, Config $config)
+    public function writeStream(string $path, $contents, Config $config): void
     {
-        $contents = stream_get_contents($resource);
-
-        return $this->write($path, $contents, $config);
-    }
-
-    /**
-     * Update, it's just overwritten.
-     *
-     * @param  string  $path
-     * @param  string  $contents
-     *
-     * @param  \League\Flysystem\Config  $config
-     * @return array|bool|false
-     */
-    public function update($path, $contents, Config $config)
-    {
-        return $this->write($path, $contents, $config);
-    }
-
-    /**
-     * Write stream, it's just overwritten stream.
-     *
-     * @param  string  $path
-     * @param  resource  $resource
-     *
-     * @param  \League\Flysystem\Config  $config
-     * @return array|bool|false
-     */
-    public function updateStream($path, $resource, Config $config)
-    {
-        return $this->writeStream($path, $resource, $config);
-    }
-
-    /**
-     * Rename means copy and delete.
-     *
-     * @param string $path
-     * @param string $newpath
-     *
-     * @return bool
-     */
-    public function rename($path, $newpath)
-    {
-        if ( ! $this->copy($path, $newpath)) {
-            return false;
-        }
-
-        return $this->delete($path);
+        $resources = stream_get_contents($contents);
+        $this->write($path, $resources, $config);
     }
 
     /**
      * Copy.
      *
-     * @param string $path
-     * @param string $newpath
+     * @param string $source
+     * @param string $destination
      *
      * @return bool
      */
-    public function copy($path, $newpath)
+    public function copy(string $source, string $destination, Config $config): void
     {
-        $path = $this->applyPathPrefix($path);
-        $newpath = $this->applyPathPrefix($newpath);
+        $path = $this->prefixer->prefixPath($source);
+        $newpath = $this->prefixer->prefixPath($destination);
 
         try {
             $this->client->copyObject($this->bucket, $path, $this->bucket, $newpath);
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            return false;
+            throw new OssException($t->getMessage());
         }
-
-        return true;
     }
 
     /**
@@ -198,49 +205,32 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @return bool
+     * @return void
      */
-    public function delete($path)
+    public function delete(string $path): void
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         try {
             $this->client->deleteObject($this->bucket, $path);
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            return false;
+            throw new OssException($t->getMessage());
         }
-
-        return true;
     }
 
-    /**
-     * Delete dir.
-     *
-     * @notice Highly recommend delete dir on Aliyun server.
-     * @notice Expect Aliyun officially provide a method.
-     *
-     * @param string $dirname
-     *
-     * @return bool
-     */
-    public function deleteDir($dirname)
-    {
-        return false;
-    }
 
     /**
      * Create dir. Usually pre-create on Aliyun server.
      *
      * @param  string  $dirname
      *
-     * @param  \League\Flysystem\Config  $config
+     * @param  Config  $config
      * @return array|bool|false
      */
-    public function createDir($dirname, Config $config)
+    public function createDirectory($dirname, Config $config): void
     {
-        $path = $this->applyPathPrefix($dirname);
+        $path = $this->prefixer->prefixPath($dirname);
 
         $options = $this->getOptions($config);
 
@@ -249,10 +239,8 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
 
-            return false;
+            throw new OssException($t->getMessage());
         }
-
-        return true;
     }
 
     /**
@@ -261,22 +249,20 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      * @param string $path
      * @param string $visibility
      *
-     * @return array|bool|false
+     * @return void
      */
-    public function setVisibility($path, $visibility)
+    public function setVisibility($path, $visibility): void
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
-        $acl = (AdapterInterface::VISIBILITY_PUBLIC === $visibility) ? OssClient::OSS_ACL_TYPE_PUBLIC_READ : OssClient::OSS_ACL_TYPE_PRIVATE;
+        $acl = (Visibility::PUBLIC === $visibility) ? OssClient::OSS_ACL_TYPE_PUBLIC_READ : OssClient::OSS_ACL_TYPE_PRIVATE;
 
         try {
             $this->client->putObjectAcl($this->bucket, $path, $acl);
 
-            return true;
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            return false;
+            throw UnableToSetVisibility::atLocation($path, $t->getMessage(), $t);
         }
     }
 
@@ -285,20 +271,18 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @throws \OSS\Core\OssException
+     * @return bool
+     *@throws UnableToCheckExistence
      *
-     * @return array|bool|null
      */
-    public function has($path)
+    public function fileExists(string $path): bool
     {
-        $path = $this->applyPathPrefix($path);
-
+        $path = $this->prefixer->prefixPath($path);
         try {
             return $this->client->doesObjectExist($this->bucket, $path);
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            throw new OssException($t->getMessage());
+            throw UnableToCheckFileExistence::forLocation($path, $t);
         }
     }
 
@@ -307,20 +291,17 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @return array|false
+     * @return string
      */
-    public function read($path)
+    public function read(string $path): string
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         try {
-            $contents = $this->client->getObject($this->bucket, $path);
-
-            return compact('contents');
+            return $this->client->getObject($this->bucket, $path);
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            return false;
+            throw new OssException($t->getMessage());
         }
     }
 
@@ -329,32 +310,45 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @return array|false|void
+     * @return resource
      */
-    public function readStream($path)
+    public function readStream(string $path)
     {
         try {
-            $stream = fopen($this->getUrl($path), 'r');
-
-            return compact('stream');
+            return fopen($this->getUrl($path), 'r');
         } catch (Throwable $t) {
-            return false;
+            $this->logException(__FUNCTION__, $t);
+            throw new FileException($t->getMessage());
         }
     }
 
     /**
      * List contents.
      *
-     * @notice Expect Aliyun officially provide a method.
+     * @notice 仅列取指定目录文件
      *
-     * @param string $directory
-     * @param bool   $recursive
+     * @param string $path
+     * @param bool $deep
      *
-     * @return array
+     * @return iterable
      */
-    public function listContents($directory = '', $recursive = false)
+    public function listContents(string $path, bool $deep): iterable
     {
-        return [];
+        $prefix = trim($this->prefixer->prefixPath($path), '/');
+        $prefix = empty($prefix) ? '' : $prefix . '/';
+        $options = array(
+            'prefix' => $prefix,
+        );
+
+        if ($deep === false) {
+            $options['Delimiter'] = '/';
+        }
+        try {
+            return $this->client->listObjects($this->bucket, $options)->getObjectList();
+        }catch (Throwable $t) {
+            $this->logException(__FUNCTION__, $t);
+            throw new FileException($t->getMessage());
+        }
     }
 
     /**
@@ -362,35 +356,40 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @return array|bool|false
+     * @return array
      */
-    public function getMetadata($path)
+    public function getMetadata(string $path): array
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         try {
             return $this->client->getObjectMeta($this->bucket, $path);
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            return false;
+            throw new OssException($t->getMessage());
         }
     }
 
-    /**
-     * Get size.
-     *
-     * @param string $path
-     *
-     * @return array|bool|false
-     */
-    public function getSize($path)
+    public function mapOssObjectMetadata(array $metadata, string $path): FileAttributes|DirectoryAttributes
     {
-        if ($metadata = $this->getMetadata($path)) {
-            $metadata['size'] = $metadata['content-length'];
+        if (substr($path, -1) === '/') {
+            return new DirectoryAttributes(rtrim($path, '/'));
         }
 
-        return $metadata;
+        $mimetype = $metadata['content-type'] ?? null;
+        $fileSize = $metadata['content-length'] ?? null;
+        $fileSize = $fileSize === null ? null : (int) $fileSize;
+        $dateTime = $metadata['last-modified'] ? new DateTimeResult($metadata['last-modified']) : null;
+        $lastModified = $dateTime instanceof DateTimeResult ? $dateTime->getTimeStamp() : null;
+
+        return new FileAttributes(
+            $path,
+            $fileSize,
+            null,
+            $lastModified,
+            $mimetype,
+            $metadata
+        );
     }
 
     /**
@@ -398,31 +397,17 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @return array|bool|false
+     * @return FileAttributes
      */
-    public function getMimetype($path)
+    public function mimetype(string $path): FileAttributes
     {
-        if ($metadata = $this->getMetadata($path)) {
-            $metadata['mimetype'] = $metadata['content-type'];
+        $mimetype = $this->mapOssObjectMetadata($this->getMetadata($path), $path);
+
+        if ($mimetype->mimeType() === null){
+            throw UnableToRetrieveMetadata::mimeType($path);
         }
 
-        return $metadata;
-    }
-
-    /**
-     * Get timestamp(last modified).
-     *
-     * @param string $path
-     *
-     * @return array|bool|false
-     */
-    public function getTimestamp($path)
-    {
-        if ($metadata = $this->getMetadata($path)) {
-            $metadata['timestamp'] = strtotime($metadata['last-modified']);
-        }
-
-        return $metadata;
+        return $mimetype;
     }
 
     /**
@@ -430,26 +415,25 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      *
      * @param string $path
      *
-     * @return array|bool|false
+     * @return FileAttributes
      */
-    public function getVisibility($path)
+    public function visibility($path): FileAttributes
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         try {
             $acl = $this->client->getObjectAcl($this->bucket, $path);
 
             if (OssClient::OSS_ACL_TYPE_PUBLIC_READ == $acl || OssClient::OSS_ACL_TYPE_PUBLIC_READ_WRITE == $acl) {
-                $acl = AdapterInterface::VISIBILITY_PUBLIC;
+                $acl = Visibility::PUBLIC;
             } else {
-                $acl = AdapterInterface::VISIBILITY_PRIVATE;
+                $acl = Visibility::PRIVATE;
             }
 
-            return ['visibility' => $acl];
+            return new FileAttributes($path, null, $acl);
         } catch (Throwable $t) {
             $this->logException(__FUNCTION__, $t);
-
-            return false;
+            throw new OssException($t->getMessage());
         }
     }
 
@@ -462,7 +446,7 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
      */
     public function getUrl($path)
     {
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         $domain = $this->customDomain ?: ($this->getSchema().$this->bucket.'.'.$this->endPoint);
 
@@ -501,7 +485,7 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
             return false;
         }
 
-        $path = $this->applyPathPrefix($path);
+        $path = $this->prefixer->prefixPath($path);
 
         try {
             $method = isset($options['method']) ?: OssClient::OSS_HTTP_GET;
@@ -556,7 +540,7 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
         $metas = array_keys(static::$optionsMap);
 
         foreach ($metas as $option) {
-            if (! $config->has($option)) {
+            if (! $config->get($option)) {
                 continue;
             }
 
@@ -564,7 +548,7 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
         }
 
         if ($visibility = $config->get('visibility')) {
-            $options[OssClient::OSS_OBJECT_ACL] = AdapterInterface::VISIBILITY_PUBLIC === $visibility ? OssClient::OSS_ACL_TYPE_PUBLIC_READ : OssClient::OSS_ACL_TYPE_PRIVATE;
+            $options[OssClient::OSS_OBJECT_ACL] = Visibility::PUBLIC === $visibility ? OssClient::OSS_ACL_TYPE_PUBLIC_READ : OssClient::OSS_ACL_TYPE_PRIVATE;
         }
 
         return $options;
@@ -605,4 +589,75 @@ class Adapter extends AbstractAdapter implements CanOverwriteFiles
     {
         return $this->bucket;
     }
+
+    /**
+     * @throws UnableToMoveFile
+     * @throws FilesystemException
+     */
+    public function move(string $source, string $destination, Config $config): void
+    {
+        try {
+            $this->copy($source, $destination, $config);
+            $this->delete($source);
+        } catch (Throwable $t) {
+            $this->logException(__FUNCTION__, $t);
+            throw new OssException($t->getMessage());
+        }
+    }
+
+    /**
+     * @throws FilesystemException
+     * @throws UnableToCheckExistence
+     */
+    public function directoryExists(string $path): bool
+    {
+      // todo
+    }
+
+    /**
+     * @throws UnableToRetrieveMetadata
+     * @throws FilesystemException
+     */
+    public function fileSize(string $path): FileAttributes
+    {
+        $filesize = $this->mapOssObjectMetadata($this->getMetadata($path), $path);
+
+        if ($filesize->fileSize() === null){
+            throw UnableToRetrieveMetadata::lastModified($path);
+        }
+
+        return $filesize;
+    }
+
+    /**
+     * @throws UnableToRetrieveMetadata
+     * @throws FilesystemException
+     */
+    public function lastModified(string $path): FileAttributes
+    {
+        $lastModified = $this->mapOssObjectMetadata($this->getMetadata($path), $path);
+
+        if ($lastModified->lastModified() === null){
+            throw UnableToRetrieveMetadata::lastModified($path);
+        }
+
+        return $lastModified;
+    }
+
+    /**
+     * Delete dir.
+     *
+     * @notice 待补充
+     *
+     * @param string $path
+     *
+     * @return bool
+     * @throws UnableToDeleteDirectory
+     * @throws FilesystemException
+     */
+    public function deleteDirectory(string $path): void
+    {
+        // todo
+    }
+
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace Mitoop\AliOSS\Plugins;
+namespace XzHonour\AliOSS\Plugins;
 
 use League\Flysystem\Config;
 
@@ -11,7 +11,7 @@ class PutRemoteFile extends AbstractPlugin
      *
      * @return string
      */
-    public function getMethod()
+    public function getMethod(): string
     {
         return 'putRemoteFile';
     }
@@ -20,6 +20,6 @@ class PutRemoteFile extends AbstractPlugin
     {
         $resource = fopen($remoteUrl, 'r');
 
-        return $this->adapter->writeStream($object, $resource, new Config($options));
+        $this->adapter->writeStream($object, $resource, new Config($options));
     }
 }

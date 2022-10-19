@@ -1,26 +1,27 @@
 <?php
 
-namespace Mitoop\AliOSS\Plugins;
+namespace XzHonour\AliOSS\Plugins;
 
-use League\Flysystem\FilesystemInterface;
-use League\Flysystem\Plugin\AbstractPlugin as BaseAbstractPlugin;
+use League\Flysystem\FilesystemAdapter;
+use League\Flysystem\FilesystemOperator;
+use XzHonour\AliOSS\League\Flysystem\Plugin\AbstractPlugin as BaseAbstractPlugin;
 
 abstract class AbstractPlugin extends BaseAbstractPlugin
 {
     /**
-     * @var FilesystemInterface
+     * @var FilesystemOperator
      */
-    protected $filesystem;
+    protected FilesystemOperator $filesystem;
 
     /**
-     * @var \Mitoop\AliOSS\Adapter
+     * @var \XzHonour\AliOSS\Adapter
      */
-    protected $adapter;
+    protected \XzHonour\AliOSS\Adapter $adapter;
 
     /**
      * Set the Filesystem object.
      */
-    public function setFilesystem(FilesystemInterface $filesystem)
+    public function setFilesystem(FilesystemOperator $filesystem)
     {
         $this->filesystem = $filesystem;
         $this->adapter = $filesystem->getAdapter();

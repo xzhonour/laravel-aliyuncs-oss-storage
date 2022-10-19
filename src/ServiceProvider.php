@@ -1,19 +1,22 @@
 <?php
 
-namespace Mitoop\AliOSS;
+namespace XzHonour\AliOSS;
 
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider as BaseServiceProvider;
-use League\Flysystem\Filesystem;
-use Mitoop\AliOSS\Plugins\PutRemoteFile;
-use Mitoop\AliOSS\Plugins\SignUrl;
+use XzHonour\AliOSS\Filesystem;
+use XzHonour\AliOSS\Plugins\GetMetaData;
+use XzHonour\AliOSS\Plugins\GetSize;
+use XzHonour\AliOSS\Plugins\PutRemoteFile;
+use XzHonour\AliOSS\Plugins\Rename;
+use XzHonour\AliOSS\Plugins\SignUrl;
 use OSS\OssClient;
 
 class ServiceProvider extends BaseServiceProvider
 {
     public function boot()
     {
-        Storage::extend('oss', function ($app, $config) {
+        Storage::extend('aliyuncs-oss', function ($app, $config) {
             $accessId = $config['access_key_id'];
             $accessKey = $config['access_key_secret'];
             $bucket = $config['bucket'];
@@ -26,6 +29,9 @@ class ServiceProvider extends BaseServiceProvider
             $filesystem = new Filesystem($adapter);
             $filesystem->addPlugin(new SignUrl());
             $filesystem->addPlugin(new PutRemoteFile());
+            $filesystem->addPlugin(new Rename());
+            $filesystem->addPlugin(new GetMetaData());
+            $filesystem->addPlugin(new GetSize());
 
             $plugins = isset($config['plugins']) ? (array) $config['plugins'] : [];
             foreach ($plugins as $plugin) {

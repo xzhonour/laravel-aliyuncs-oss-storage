@@ -1,6 +1,6 @@
 <?php
 
-namespace Mitoop\AliOSS\Plugins;
+namespace XzHonour\AliOSS\Plugins;
 
 class SignUrl extends AbstractPlugin
 {
@@ -9,7 +9,7 @@ class SignUrl extends AbstractPlugin
      *
      * @return string
      */
-    public function getMethod()
+    public function getMethod(): string
     {
         return 'signUrl';
     }

@@ -1,18 +1,21 @@
 # Laravel Aliyun OSS Filesystem Storage
 
-## Install
-> composer require mitoop/laravel-alioss-storage
+## 说明
+> 本项目Fork原项目地址 https://github.com/mitoop/laravel-alioss-storage
+> 在原项目上以支持 laravel 9.x
+> 不支持 laravel 9 以下版本，对9以下版本支持请访问原项目地址
 
-Laravel 版本低于5.5版本 请添加`Mitoop\AliOSS\ServiceProvider` 到 `config/app.php` 的 `providers` 数组
+## Install
+> composer require xzhonour/laravel-aliyuncs-oss-storage
 
 ## Require
-   - Laravel 5+
+   - Laravel 9.x
 
 ## Configure
 在 `config/filesystems.php` 的 `disk`里增加配置:
 ```
  'oss' => [ // 定义的disk名称, 自定义，只要不重复就行
-    'driver'            => 'oss', // 使用的驱动，这里只能填写 `oss` [必填]
+    'driver'            => 'aliyuncs-oss', // 使用的驱动，这里只能填写 `aliyuncs-oss` [必填]
     'access_key_id'     => env('OSS_ACCESS_ID', 'access_key_id'), // OSS access_key_id [必填]
     'access_key_secret' => env('OSS_ACCESS_KEY', 'access_key_secret'), // OSS access_key_secret [必填]
     'endpoint'          => env('OSS_ENDPOINT', 'endpoint'), // OSS endpoint [必填]

@@ -2,7 +2,6 @@
 
 namespace XzHonour\AliOSS\Plugins;
 
-use League\Flysystem\FilesystemAdapter;
 use League\Flysystem\FilesystemOperator;
 use XzHonour\AliOSS\League\Flysystem\Plugin\AbstractPlugin as BaseAbstractPlugin;
 

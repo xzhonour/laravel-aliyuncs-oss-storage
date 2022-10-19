@@ -35,8 +35,8 @@
   'plugins' => [
       DoSomethingPlugin::class,
   ],
-  插件类应该继承 `\Mitoop\AliOSS\PluginsAbstractPlugin` 
-  或者继承 `League\Flysystem\Plugin\AbstractPlugin`
+  插件类应该继承 `XzHonour\AliOSS\Plugins\AbstractPlugin` 
+  或者继承 `XzHonour\AliOSS\League\Flysystem\Plugin\AbstractPlugin`
 ```  
       
 ## Use
@@ -81,6 +81,48 @@
    `signUrl` 传入的 int 类型, 例如, 传入30表示30秒后过期
    
    `temporaryUrl` 传入的是 `\DateTimeInterface` 类型, 例如, 传入 now()->addSeconds(30) 也是表示30秒后过期
+
+## support methods
+### 普通写入
+> Storage::disk('aliOss')->write('test.txt','test');
+### 写入流
+> Storage::disk('aliOss')
+            ->writeStream('test1.txt',fopen('./app/Console/Commands/Test/TestCode.php','r'));
+### 重命名文件
+> Storage::disk('aliOss')->rename('test.txt','test3.txt');
+### 复制文件到目标
+> Storage::disk('aliOss')->copy('test.txt','temp/test.txt');
+### 删除文件夹
+### 创建文件夹
+> Storage::disk('aliOss')->createDirectory('temp1');
+### 设置文件访问权限
+> Storage::disk('aliOss')->setVisibility('test3.txt',Visibility::PUBLIC);
+### 文件是否存在
+> dd(Storage::disk('aliOss')->fileExists('test3.txt'));
+### 读取文件
+### 读取文件，流方式
+> dd(Storage::disk('aliOss')->readStream('test1.txt'));
+### 列举文件列表
+```php
+foreach (Storage::disk('aliOss')->listContents('temp', false) as $content){
+             dd($content);
+        }
+```
+
+### 获取文件元信息
+> dd(Storage::disk('aliOss')->getMetaData('test3.txt'));
+### 获取文件大小信息,获取不到时为 -1
+> dd(Storage::disk('aliOss')->getSize('test3.txt'));
+### 获取文件mimetype
+> dd(Storage::disk('aliOss')->mimetype('test3.txt'));
+### 获取文件lastModified
+> dd(Storage::disk('aliOss')->lastModified('test3.txt'));
+### 获取文件访问权限
+> dd(Storage::disk('aliOss')->visibility('test3.txt'));\
+###  移动文件
+> Storage::disk('aliOss')->move('test3.txt','temp1/test3.txt');
+### 文件大小
+> dd(Storage::disk('aliOss')->fileSize('temp1/test3.txt'));
 
 ## More
 

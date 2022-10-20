@@ -2,6 +2,7 @@
 
 namespace XzHonour\AliOSS;
 
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider as BaseServiceProvider;
 use XzHonour\AliOSS\Filesystem;
@@ -38,7 +39,7 @@ class ServiceProvider extends BaseServiceProvider
                 $filesystem->addPlugin(new $plugin());
             }
 
-            return $filesystem;
+            return new FilesystemAdapter($filesystem, $adapter, $config);
         });
     }
 }

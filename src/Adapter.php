@@ -329,16 +329,15 @@ class Adapter implements FilesystemAdapter
      *
      * @param string $path
      * @param bool $deep
+     * @param array $options
      *
      * @return iterable
      */
-    public function listContents(string $path, bool $deep): iterable
+    public function listContents(string $path, bool $deep, array $options = []): iterable
     {
         $prefix = trim($this->prefixer->prefixPath($path), '/');
         $prefix = empty($prefix) ? '' : $prefix . '/';
-        $options = array(
-            'prefix' => $prefix,
-        );
+        $options = array_merge($options, ['prefix' => $prefix]);
 
         if ($deep === false) {
             $options['Delimiter'] = '/';
@@ -370,6 +369,12 @@ class Adapter implements FilesystemAdapter
         }
     }
 
+    /**
+     * @param array $metadata
+     * @param string $path
+     * @return FileAttributes|DirectoryAttributes
+     * @throws \Exception
+     */
     public function mapOssObjectMetadata(array $metadata, string $path): FileAttributes|DirectoryAttributes
     {
         if (substr($path, -1) === '/') {
@@ -417,7 +422,7 @@ class Adapter implements FilesystemAdapter
      *
      * @return FileAttributes
      */
-    public function visibility($path): FileAttributes
+    public function visibility(string $path): FileAttributes
     {
         $path = $this->prefixer->prefixPath($path);
 
@@ -444,7 +449,7 @@ class Adapter implements FilesystemAdapter
      *
      * @return string
      */
-    public function getUrl($path)
+    public function getUrl($path): string
     {
         $path = $this->prefixer->prefixPath($path);
 
@@ -458,7 +463,7 @@ class Adapter implements FilesystemAdapter
      *
      * @return string
      */
-    protected function getSchema()
+    protected function getSchema(): string
     {
         if ('http' == $this->schema || 'https' == $this->schema) {
             return $this->schema.'://';
@@ -479,7 +484,7 @@ class Adapter implements FilesystemAdapter
      *
      * @return bool|string
      */
-    public function getTemporaryUrl($path, $expiration, array $options = [])
+    public function getTemporaryUrl($path, $expiration, array $options = []): bool|string
     {
         if (! ($expiration = now()->diffInSeconds($expiration))) {
             return false;
@@ -606,12 +611,14 @@ class Adapter implements FilesystemAdapter
     }
 
     /**
+     * @notice Return to true forever
+     * @notice 期待阿里云oss支持
      * @throws FilesystemException
      * @throws UnableToCheckExistence
      */
     public function directoryExists(string $path): bool
     {
-      // todo
+        return true;
     }
 
     /**
